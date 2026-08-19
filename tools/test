@@ -1,0 +1,23 @@
+#!/bin/sh
+# Run every check in the repo.
+#
+# src/symbols.js imports nothing from `vscode`, so its logic runs under a plain node --
+# and if none is installed, VS Code ships one inside its own app bundle, which is enough.
+# Nothing here covers the Tab keybinding itself; see the checklist in README.
+set -e
+
+cd "$(dirname "$0")/.."
+
+if command -v node >/dev/null 2>&1; then
+  RUN() { node "$@"; }
+else
+  BUNDLED="/Applications/Visual Studio Code.app/Contents/MacOS/Code"
+  if [ ! -x "$BUNDLED" ]; then
+    echo "no node, and no VS Code to borrow one from" >&2
+    exit 1
+  fi
+  RUN() { ELECTRON_RUN_AS_NODE=1 "$BUNDLED" "$@"; }
+fi
+
+python3 tools/check
+RUN tools/test-symbols.js

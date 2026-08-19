@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Regenerate data/symbols.json and data/jupyter.json from Julia's REPL symbol table.
+
+Julia's latex_symbols.jl is the upstream source IPython derives its own table from, so
+taking it directly gives us both sets from one parse: everything, and the identifier-safe
+subset that is all Jupyter will complete.
+
+There is no node on this machine and the extension has no build step, so this is python3
+and is run by hand when the upstream file moves.
+"""
+
+import json
+import re
+import sys
+import urllib.request
+from pathlib import Path
+
+URL = "https://raw.githubusercontent.com/JuliaLang/julia/master/stdlib/REPL/src/latex_symbols.jl"
+
+# A quoted Julia string. \U######## must come before \u####, and both before the general
+# \<char> escape, or the shorter alternative wins and eats half a codepoint.
+VALUE = r'"((?:\\U[0-9a-fA-F]{8}|\\u[0-9a-fA-F]{4}|\\[^uU]|[^"\\])+)"'
+
+# `name = "\\bb"` at the top level: the font prefixes that pass 2 concatenates.
+PREFIX = re.compile(r'^\s*(?:const\s+)?(\w+)\s*=\s*"([^"]*)"\s*$', re.M)
+
+# `"\\alpha" => "α"`. Anchoring the key to a backslash is what skips the reverse-direction
+# block further down the file, which maps the character back to the name.
+DIRECT = re.compile(r'"(\\\\[^"]*)"\s*=>\s*' + VALUE)
+
+# `blackboard*"R" => "ℝ"`, the font variants.
+CONCAT = re.compile(r'(\w+)\*"([^"]*)"\s*=>\s*' + VALUE)
+
+
+def unescape(s):
+    """Resolve \\uXXXX and \\UXXXXXXXX.
+
+    Not `unicode_escape`: it raises on the astral escapes in this file and mangles the
+    non-ASCII literals sitting next to them, which are already decoded.
+    """
+    return re.sub(r"\\[uU]([0-9a-fA-F]{4,8})", lambda m: chr(int(m.group(1), 16)), s)
+
+
+def identifier_safe(char):
+    """Is the character legal inside a Python name? IPython's whole filter.
+
+    Prefixed with a letter because several are legal to continue a name but not to start
+    one, and IPython keeps those.
+    """
+    return ("a" + char).isidentifier()
+
+
+def parse(source):
+    # The leading #= ... =# block is the Julia script that generated the file. It is full
+    # of things shaped like entries.
+    body = re.sub(r"#=.*?=#", "", source, flags=re.S)
+    prefixes = {name: value.replace("\\\\", "\\") for name, value in PREFIX.findall(source)}
+
+    symbols = {}
+    for name, char in DIRECT.findall(body):
+        symbols[name.replace("\\\\", "\\")] = unescape(char)
+    for prefix, suffix, char in CONCAT.findall(body):
+        if prefix in prefixes:
+            symbols[prefixes[prefix] + suffix] = unescape(char)
+    return symbols
+
+
+def main():
+    here = Path(__file__).resolve().parent.parent
+    print(f"Fetching {URL}", file=sys.stderr)
+    with urllib.request.urlopen(URL, timeout=60) as response:
+        source = response.read().decode("utf-8")
+
+    symbols = parse(source)
+    if len(symbols) < 2000:
+        sys.exit(f"only {len(symbols)} entries parsed; the upstream format has moved")
+
+    jupyter = sorted(name for name, char in symbols.items() if identifier_safe(char))
+
+    data = here / "data"
+    (data / "symbols.json").write_text(
+        json.dumps(dict(sorted(symbols.items())), ensure_ascii=False, indent=0) + "\n",
+        encoding="utf-8",
+    )
+    (data / "jupyter.json").write_text(
+        json.dumps(jupyter, ensure_ascii=False, indent=0) + "\n", encoding="utf-8"
+    )
+    print(f"{len(symbols)} symbols, {len(jupyter)} identifier-safe")
+
+
+if __name__ == "__main__":
+    main()

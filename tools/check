@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+"""Sanity-check the generated tables and the Tab keybinding.
+
+There is no node here and so no test harness that can drive a real editor. What can be
+checked without one is the data, and the keybinding guards -- the guards being the part
+whose failure is both most likely and least visible, since a wrong `when` clause does not
+error, it just quietly stops Tab from indenting.
+"""
+
+import json
+import sys
+import unicodedata
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+# Losing any of these turns Tab from "complete a LaTeX name" into "break Tab".
+REQUIRED_GUARDS = [
+    "editorTextFocus",
+    "!editorReadonly",
+    "!suggestWidgetVisible",
+    "!editorTabMovesFocus",
+    "!inSnippetMode",
+    "jupyterUnicode.atLatexToken",
+]
+
+failures = []
+
+
+def check(condition, message):
+    if not condition:
+        failures.append(message)
+
+
+def main():
+    symbols = json.loads((ROOT / "data" / "symbols.json").read_text(encoding="utf-8"))
+    jupyter = json.loads((ROOT / "data" / "jupyter.json").read_text(encoding="utf-8"))
+
+    check(len(symbols) > 2500, f"only {len(symbols)} symbols")
+    check(len(jupyter) > 1250, f"only {len(jupyter)} identifier-safe names")
+    check(set(jupyter) <= set(symbols), "jupyter.json is not a subset of symbols.json")
+    check(len(set(jupyter)) == len(jupyter), "jupyter.json has duplicates")
+
+    check(all(symbols.values()), "some symbols map to an empty string")
+    check(
+        all(name.startswith("\\") and len(name) > 1 for name in symbols),
+        "some names do not start with a backslash",
+    )
+
+    # The subset is exactly the identifier rule, not an approximation of it.
+    safe = {name for name, char in symbols.items() if ("a" + char).isidentifier()}
+    check(safe == set(jupyter), "jupyter.json does not match the isidentifier rule")
+
+    for name, expected in [
+        ("\\beta", "β"),
+        ("\\bbR", "ℝ"),
+        ("\\sum", "∑"),
+        ("\\_1", "₁"),
+        ("\\^2", "²"),
+    ]:
+        check(symbols.get(name) == expected, f"{name} should be {expected}")
+
+    tilde = symbols["\\tilde"]
+    check(unicodedata.combining(tilde) != 0, "\\tilde should be a combining mark")
+    # The case that motivated composeAccents: y + U+0303 has a precomposed form.
+    check(
+        unicodedata.normalize("NFC", "y" + tilde) == "\u1ef9",
+        "y followed by \\tilde should compose to a single codepoint",
+    )
+
+    # The characters the default set is meant to withhold, and the one it must not.
+    for name in ["\\sum", "\\in", "\\to", "\\_1", "\\^2"]:
+        check(name not in set(jupyter), f"{name} should be absent from the jupyter set")
+    check("\\beta" in set(jupyter), "\\beta should be in the jupyter set")
+
+    # Every combining mark must be caught by the ranges src/symbols.js tests, or its popup
+    # preview renders as a loose accent.
+    ranges = [(0x0300, 0x036F), (0x1AB0, 0x1AFF), (0x1DC0, 0x1DFF), (0x20D0, 0x20FF)]
+    for name, char in symbols.items():
+        if unicodedata.combining(char[0]) != 0:
+            point = ord(char[0])
+            check(
+                any(low <= point <= high for low, high in ranges),
+                f"{name} is a combining mark outside the ranges in src/symbols.js",
+            )
+
+    package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    bindings = package["contributes"]["keybindings"]
+    check(len(bindings) == 1 and bindings[0]["key"] == "tab", "expected one tab keybinding")
+    when = bindings[0].get("when", "")
+    for guard in REQUIRED_GUARDS:
+        check(guard in when, f"the tab keybinding has lost its {guard} guard")
+
+    settings = package["contributes"]["configuration"]["properties"]
+    check(settings["jupyterUnicode.symbolSet"]["default"] == "jupyter", "symbolSet default moved")
+    check(package["main"] == "./src/extension.js", "main does not point at the entry point")
+
+    if failures:
+        for failure in failures:
+            print(f"FAIL {failure}", file=sys.stderr)
+        sys.exit(1)
+    print(f"ok: {len(symbols)} symbols, {len(jupyter)} identifier-safe, tab guards intact")
+
+
+if __name__ == "__main__":
+    main()

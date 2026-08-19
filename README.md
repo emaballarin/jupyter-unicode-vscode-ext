@@ -100,8 +100,11 @@ ones IPython's own line-based parser drops as an artefact rather than by intent.
 
 `src/symbols.js` imports nothing from `vscode`, so the fiddly part — scanning back for the
 name, refusing an escaped `\\`, the combining-mark preview — is covered by real unit tests.
-They need a node, and if none is installed the script borrows the one inside VS Code's own
-app bundle, so there is still nothing to install.
+A second suite activates the extension against a stub of the `vscode` API and checks the
+things that otherwise fail silently: that the completion range takes the backslash, that
+every command in `package.json` has a handler, and that the context key stays *unarmed* on
+plain indentation. Both need a node, and if none is installed the script borrows the one
+inside VS Code's own app bundle, so there is still nothing to install.
 
 Alongside them `tools/check` validates the data (subset relation, the `isidentifier` rule,
 spot values, every combining mark falling inside the ranges `src/symbols.js` tests) and

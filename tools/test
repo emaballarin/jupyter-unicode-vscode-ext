@@ -21,3 +21,4 @@ fi
 
 python3 tools/check
 RUN tools/test-symbols.js
+RUN tools/test-activate.js

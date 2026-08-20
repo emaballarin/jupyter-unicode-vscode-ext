@@ -9,14 +9,14 @@ const GAP = '  ';
 /**
  * Offers the Unicode character for the `\name` under the cursor.
  *
- * The items are built once per symbol set and reused: there are up to ~2550 of them and
- * the set only changes when the setting does, so rebuilding on every keystroke would be
- * pure waste. Only the range, which moves with the cursor, is assigned per request.
+ * The items are built once and reused: there are 1300 of them, so rebuilding on every
+ * keystroke would be pure waste. Only the range, which moves with the cursor, is assigned
+ * per request.
  */
 class LatexCompletionProvider {
   constructor() {
-    /** @type {Map<string, vscode.CompletionItem[]>} */
-    this.cache = new Map();
+    /** @type {vscode.CompletionItem[] | null} */
+    this.cache = null;
   }
 
   /**
@@ -29,7 +29,6 @@ class LatexCompletionProvider {
       return undefined;
     }
 
-    const settings = vscode.workspace.getConfiguration('jupyterUnicode', document);
     const range = new vscode.Range(
       position.line,
       token.start,
@@ -40,7 +39,7 @@ class LatexCompletionProvider {
     // Prefix matching, the way Jupyter does it. Handing the widget all 1300 names and
     // letting its fuzzy matcher pick turns `\pi` into a list of `\phi`, `\psi`, `\bbPi`.
     const matches = [];
-    for (const item of this.items(settings.get('symbolSet', 'jupyter'))) {
+    for (const item of this.items()) {
       if (!item.name.startsWith(token.text)) {
         continue;
       }
@@ -57,18 +56,13 @@ class LatexCompletionProvider {
     return new vscode.CompletionList(matches, true);
   }
 
-  /**
-   * @param {string} symbolSet
-   * @returns {vscode.CompletionItem[]}
-   */
-  items(symbolSet) {
-    const cached = this.cache.get(symbolSet);
-    if (cached) {
-      return cached;
+  /** @returns {vscode.CompletionItem[]} */
+  items() {
+    if (this.cache) {
+      return this.cache;
     }
 
-    const table = symbols.forSet(symbolSet);
-    const items = Object.entries(table).map(([name, character]) => {
+    const items = Object.entries(symbols.jupyter()).map(([name, character]) => {
       // The character rides alongside the name, so the popup shows what you are about to
       // get -- which is the whole point of it appearing.
       const label = { label: name, detail: GAP + character };
@@ -92,13 +86,8 @@ class LatexCompletionProvider {
       return item;
     });
 
-    this.cache.set(symbolSet, items);
+    this.cache = items;
     return items;
-  }
-
-  /** Drop the cached items, after the symbol set changes. */
-  clear() {
-    this.cache.clear();
   }
 }
 

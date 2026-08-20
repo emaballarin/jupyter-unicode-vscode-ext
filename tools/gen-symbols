@@ -5,8 +5,13 @@ Julia's latex_symbols.jl is the upstream source IPython derives its own table fr
 taking it directly gives us both sets from one parse: everything, and the identifier-safe
 subset that is all Jupyter will complete.
 
-There is no node on this machine and the extension has no build step, so this is python3
-and is run by hand when the upstream file moves.
+The subset is computed by applying IPython's own rule, ("a" + char).isidentifier(), rather
+than by copying IPython's output. That gives 1300 entries against their 1290, containing
+all of theirs with no disagreement in any value; the ten extra (\bbpi, \^C,
+\underrightarrow, ...) are ones IPython's line-based parser drops as an artefact rather
+than by intent. If that count ever changes, this is why it was 1300 and not 1290.
+
+Run by hand when the upstream file moves.
 """
 
 import json

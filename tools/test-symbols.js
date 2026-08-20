@@ -109,8 +109,6 @@ test('the two tables agree', () => {
   }
   assert.ok(!('\\sum' in jupyter), '\\sum is not identifier-safe');
   assert.strictEqual(all['\\sum'], '∑');
-  assert.strictEqual(symbols.forSet('full'), all);
-  assert.strictEqual(symbols.forSet('jupyter'), jupyter);
 });
 
 if (!process.exitCode) {

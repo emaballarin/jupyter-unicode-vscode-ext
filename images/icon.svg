@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="26" fill="#22252b"/>
+  <text x="64" y="88" text-anchor="middle" font-family="STIX Two Math, STIXGeneral, Apple Symbols, serif" font-size="66">
+    <tspan fill="#ff3ea5">𝔸</tspan><tspan fill="#22d3ee">β</tspan>
+  </text>
+  
+</svg>

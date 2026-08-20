@@ -2,6 +2,7 @@
   "name": "jupyter-unicode-vscode-ext",
   "displayName": "Jupyter Unicode input",
   "description": "Type \\beta and press Tab to get β, the way Jupyter notebooks do.",
+  "icon": "images/icon.png",
   "version": "0.1.0",
   "publisher": "atcold",
   "private": true,
@@ -35,19 +36,6 @@
     "configuration": {
       "title": "Jupyter Unicode input",
       "properties": {
-        "jupyterUnicode.symbolSet": {
-          "type": "string",
-          "enum": [
-            "jupyter",
-            "full"
-          ],
-          "enumDescriptions": [
-            "The 1300 characters valid inside a Python identifier, which is exactly what IPython offers.",
-            "All 2548 names Julia's REPL knows, adding \\sum ∑, \\in ∈, \\to →, \\_1 ₁ and \\^2 ²."
-          ],
-          "default": "jupyter",
-          "description": "Which symbol table to complete from. IPython filters its table to characters that are valid in a Python name, which is why the notebook in your browser will not complete \\sum. Choose full to lift that."
-        },
         "jupyterUnicode.triggerOnBackslash": {
           "type": "boolean",
           "default": false,

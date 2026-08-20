@@ -45,7 +45,6 @@ function activate(context) {
       if (!event.affectsConfiguration('jupyterUnicode')) {
         return;
       }
-      provider.clear();
       register();
     }),
   );

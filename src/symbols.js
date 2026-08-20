@@ -45,14 +45,6 @@ function jupyter() {
   return jupyterNames;
 }
 
-/**
- * The table a given setting selects.
- * @param {string} symbolSet either `jupyter` or `full`
- */
-function forSet(symbolSet) {
-  return symbolSet === 'full' ? all() : jupyter();
-}
-
 function load(file) {
   return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', file), 'utf8'));
 }
@@ -142,7 +134,6 @@ function isCombining(char) {
 module.exports = {
   all,
   jupyter,
-  forSet,
   tokenAt,
   preview,
   isCombining,

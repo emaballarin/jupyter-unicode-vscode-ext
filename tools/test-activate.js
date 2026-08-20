@@ -2,7 +2,8 @@
 
 // Activates the extension against a stub of the `vscode` API.
 //
-// This cannot tell you whether Tab is bound correctly -- only a real extension host can --
+// This cannot tell you whether Tab is bound correctly -- only a real extension host can,
+// so that part is checked by hand against test/scratch.ipynb --
 // but it does catch the errors that otherwise surface as a silent failure to activate: a
 // misspelt API, a provider registered against nothing, a command declared in package.json
 // with no handler behind it.
@@ -47,7 +48,6 @@ class CompletionList {
 }
 
 const settings = new Map([
-  ['symbolSet', 'jupyter'],
   ['triggerOnBackslash', false],
   ['composeAccents', true],
   ['languages', ['python']],
@@ -196,13 +196,14 @@ test('stays silent where there is no name', () => {
   assert.strictEqual(provider.provideCompletionItems(document, new Position(0, 4)), undefined);
 });
 
-test('the full set adds the symbols jupyter filters out', () => {
+test('offers only what can sit in a python name', () => {
   const { provider } = calls.providers[0];
-  settings.set('symbolSet', 'full');
-  const document = { lineAt: () => ({ text: '\\sum' }) };
-  const { items } = provider.provideCompletionItems(document, new Position(0, 4));
-  assert.strictEqual(items.find((item) => item.name === '\\sum').insertText, '∑');
-  settings.set('symbolSet', 'jupyter');
+  // Python's identifier rules are why IPython drops these, and this follows IPython.
+  for (const name of ['\\sum', '\\in', '\\to']) {
+    const line = { lineAt: () => ({ text: name }) };
+    const { items } = provider.provideCompletionItems(line, new Position(0, name.length));
+    assert.ok(!items.some((item) => item.name === name), `${name} is not identifier-safe`);
+  }
 });
 
 if (!process.exitCode) {

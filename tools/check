@@ -92,8 +92,10 @@ def main():
         check(guard in when, f"the tab keybinding has lost its {guard} guard")
 
     settings = package["contributes"]["configuration"]["properties"]
-    check(settings["jupyterUnicode.symbolSet"]["default"] == "jupyter", "symbolSet default moved")
+    check("jupyterUnicode.symbolSet" not in settings, "the symbol set is not a setting")
     check(package["main"] == "./src/extension.js", "main does not point at the entry point")
+    # A missing icon does not fail the install, it just renders a blank tile on the page.
+    check((ROOT / package["icon"]).is_file(), f"{package['icon']} is missing")
 
     if failures:
         for failure in failures:

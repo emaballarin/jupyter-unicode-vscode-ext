@@ -1,4 +1,4 @@
-# Jupyter Unicode input
+# Jupyter Unicode input for VS Code
 
 Type `\beta`, press `<Tab>`, get `β` — the way a Jupyter notebook in the browser does, but
 in VS Code.

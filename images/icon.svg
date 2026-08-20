@@ -1,4 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Source for images/icon.png. Render at 512, not at the 128 the marketplace
+       gives as its minimum: VS Code draws the tile at up to 3x on a retina
+       display, and a 128 source is visibly soft.
+         rsvg-convert -w 512 -h 512 images/icon.svg -o images/icon.png -->
   <rect width="128" height="128" rx="26" fill="#22252b"/>
   <text x="64" y="88" text-anchor="middle" font-family="STIX Two Math, STIXGeneral, Apple Symbols, serif" font-size="66">
     <tspan fill="#ff3ea5">𝔸</tspan><tspan fill="#22d3ee">β</tspan>

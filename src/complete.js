@@ -3,6 +3,9 @@
 const vscode = require('vscode');
 const symbols = require('./symbols');
 
+/** Separates the name from its character in the popup row. */
+const GAP = '  ';
+
 /**
  * Offers the Unicode character for the `\name` under the cursor.
  *
@@ -34,16 +37,24 @@ class LatexCompletionProvider {
       position.character,
     );
 
-    const items = this.items(settings.get('symbolSet', 'jupyter'));
-    for (const item of items) {
+    // Prefix matching, the way Jupyter does it. Handing the widget all 1300 names and
+    // letting its fuzzy matcher pick turns `\pi` into a list of `\phi`, `\psi`, `\bbPi`.
+    const matches = [];
+    for (const item of this.items(settings.get('symbolSet', 'jupyter'))) {
+      if (!item.name.startsWith(token.text)) {
+        continue;
+      }
       item.range = range;
       // The preview depends on what sits before the backslash, so a combining mark shows
       // as it will actually land.
       if (item.combining) {
-        item.detail = symbols.preview(item.character, token.preceding);
+        item.label.detail = GAP + symbols.preview(item.character, token.preceding);
       }
+      matches.push(item);
     }
-    return items;
+    // Incomplete, so the next keystroke comes back here for a narrower prefix instead of
+    // being fuzzy-filtered against this list.
+    return new vscode.CompletionList(matches, true);
   }
 
   /**
@@ -58,9 +69,12 @@ class LatexCompletionProvider {
 
     const table = symbols.forSet(symbolSet);
     const items = Object.entries(table).map(([name, character]) => {
-      const item = new vscode.CompletionItem(name, vscode.CompletionItemKind.Text);
+      // The character rides alongside the name, so the popup shows what you are about to
+      // get -- which is the whole point of it appearing.
+      const label = { label: name, detail: GAP + character };
+      const item = new vscode.CompletionItem(label, vscode.CompletionItemKind.Text);
       item.insertText = character;
-      item.detail = character;
+      item.name = name;
       // The widget filters on the word it finds itself, which stops at the backslash.
       // Saying so explicitly is what makes typing `\be` narrow to `\beta`.
       item.filterText = name;

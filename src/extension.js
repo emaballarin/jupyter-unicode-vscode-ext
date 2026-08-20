@@ -27,11 +27,13 @@ function activate(context) {
     const languages = settings.get('languages', ['python']);
     // Trigger characters are fixed at registration time, hence the re-registration.
     const triggers = settings.get('triggerOnBackslash', false) ? ['\\'] : [];
-    const selectors = [NOTEBOOK_CELL, ...languages.map((language) => ({ language }))];
+    // One registration against every selector, not one per selector: a Python notebook
+    // cell matches both, and registering twice offers every symbol twice.
+    const selector = [NOTEBOOK_CELL, ...languages.map((language) => ({ language }))];
 
-    registrations = selectors.map((selector) =>
+    registrations = [
       vscode.languages.registerCompletionItemProvider(selector, provider, ...triggers),
-    );
+    ];
   };
   register();
   context.subscriptions.push({

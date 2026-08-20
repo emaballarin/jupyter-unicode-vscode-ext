@@ -39,6 +39,13 @@ class CompletionItem {
   }
 }
 
+class CompletionList {
+  constructor(items, isIncomplete) {
+    this.items = items;
+    this.isIncomplete = isIncomplete;
+  }
+}
+
 const settings = new Map([
   ['symbolSet', 'jupyter'],
   ['triggerOnBackslash', false],
@@ -55,6 +62,7 @@ const vscode = {
   Position,
   Range,
   CompletionItem,
+  CompletionList,
   CompletionItemKind: { Text: 1 },
   languages: {
     registerCompletionItemProvider(selector, provider, ...triggers) {
@@ -107,8 +115,11 @@ function test(name, body) {
 const context = { subscriptions: [] };
 extension.activate(context);
 
-test('registers for notebook cells and for python', () => {
-  const selectors = calls.providers.map((p) => JSON.stringify(p.selector));
+test('registers for notebook cells and for python, exactly once', () => {
+  // A python notebook cell matches both selectors. Registering once per selector offered
+  // every symbol twice, which is what the popup actually showed.
+  assert.strictEqual(calls.providers.length, 1, 'one registration, or items come doubled');
+  const selectors = calls.providers[0].selector.map((s) => JSON.stringify(s));
   assert.ok(selectors.includes('{"scheme":"vscode-notebook-cell"}'), 'notebook cells');
   assert.ok(selectors.includes('{"language":"python"}'), 'python');
 });
@@ -149,17 +160,32 @@ test('arms the context key only just after a name', () => {
 test('offers items covering the whole name, backslash included', () => {
   const { provider } = calls.providers[0];
   const document = { lineAt: () => ({ text: 'y\\tilde' }) };
-  const items = provider.provideCompletionItems(document, new Position(0, 7));
-  assert.ok(items.length > 1250, 'the default set is the jupyter one');
+  const { items } = provider.provideCompletionItems(document, new Position(0, 7));
 
-  const tilde = items.find((item) => item.label === '\\tilde');
+  const tilde = items.find((item) => item.name === '\\tilde');
   assert.strictEqual(tilde.range.start.character, 1, 'the range takes the backslash');
   assert.strictEqual(tilde.range.end.character, 7);
   assert.strictEqual(tilde.filterText, '\\tilde');
-  assert.strictEqual(tilde.detail, 'y' + tilde.insertText, 'previewed on its base');
+  assert.ok(tilde.label.detail.endsWith('y' + tilde.insertText), 'previewed on its base');
   assert.strictEqual(tilde.command.command, 'jupyterUnicode.compose');
+});
 
-  const beta = items.find((item) => item.label === '\\beta');
+test('matches on the prefix, not fuzzily', () => {
+  const { provider } = calls.providers[0];
+  const document = { lineAt: () => ({ text: '\\pi' }) };
+  const list = provider.provideCompletionItems(document, new Position(0, 3));
+  const names = list.items.map((item) => item.name);
+
+  assert.ok(names.includes('\\pi'), 'the exact name is there');
+  // What the widget's own fuzzy matcher dragged in when handed the whole table.
+  for (const noise of ['\\phi', '\\psi', '\\Pi', '\\bbPi', '\\bfPi']) {
+    assert.ok(!names.includes(noise), `${noise} is not a prefix of \\pi`);
+  }
+  assert.ok(list.isIncomplete, 'the next keystroke must re-query, not re-filter this list');
+
+  const beta = provider
+    .provideCompletionItems({ lineAt: () => ({ text: '\\bet' }) }, new Position(0, 4))
+    .items.find((item) => item.name === '\\beta');
   assert.strictEqual(beta.insertText, 'β');
   assert.strictEqual(beta.command, undefined, 'no composition for a standalone glyph');
 });
@@ -174,8 +200,8 @@ test('the full set adds the symbols jupyter filters out', () => {
   const { provider } = calls.providers[0];
   settings.set('symbolSet', 'full');
   const document = { lineAt: () => ({ text: '\\sum' }) };
-  const items = provider.provideCompletionItems(document, new Position(0, 4));
-  assert.strictEqual(items.find((item) => item.label === '\\sum').insertText, '∑');
+  const { items } = provider.provideCompletionItems(document, new Position(0, 4));
+  assert.strictEqual(items.find((item) => item.name === '\\sum').insertText, '∑');
   settings.set('symbolSet', 'jupyter');
 });
 

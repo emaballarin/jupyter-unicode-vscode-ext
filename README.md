@@ -1,7 +1,6 @@
 # Jupyter Unicode input for VS Code
 
-Type `\beta`, press `<Tab>`, get `β` — the way a Jupyter notebook in the browser does, but
-in VS Code.
+Type `\beta`, press `<Tab>`, get `β` — the way a Jupyter notebook in the browser does, but in VS Code.
 
 ```
 \beta   <Tab>  →  β
@@ -9,8 +8,7 @@ y\tilde <Tab>  →  ỹ
 \bbR    <Tab>  →  ℝ
 ```
 
-Works in notebook cells, code and markdown alike, in the Interactive Window, and in `.py`
-files. Outside a `\name`, `<Tab>` still indents exactly as before.
+Works in notebook cells, code and markdown alike, in the Interactive Window, and in `.py` files. Outside a `\name`, `<Tab>` still indents exactly as before.
 
 ## Install
 

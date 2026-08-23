@@ -1,5 +1,6 @@
 #!/bin/sh
-# Package the extension as a .vsix, with nothing but tar and zip.
+# Package the extension as a .vsix, with nothing but tar, zip, and the python3 that
+# tools/check already needs.
 #
 # Dropping a folder into ~/.vscode/extensions is no longer enough: VS Code takes
 # extensions.json there as the source of truth and marks anything else obsolete at
@@ -8,21 +9,40 @@
 set -e
 
 cd "$(dirname "$0")/.."
-field() { sed -n "s/.*\"$1\": \"\([^\"]*\)\".*/\1/p" package.json | head -1; }
 
-name=$(field name)
-publisher=$(field publisher)
-version=$(field version)
-display=$(field displayName)
-summary=$(field description)
-engine=$(sed -n 's/.*"vscode": "\([^"]*\)".*/\1/p' package.json | head -1)
+# python3 rather than a sed capture, because the fields cross two encodings. They are JSON,
+# so their escapes have to be decoded: a raw capture ships the description as `Type \\beta`
+# where package.json means `Type \beta`. And they land in XML, so their metacharacters have
+# to be escaped: an `&` or a `<` in the display name makes the manifest ill-formed, and the
+# installer rejects it without saying why.
+fields=$(python3 - <<'PY'
+import json
+from shlex import quote
+from xml.sax.saxutils import escape
+
+manifest = json.load(open("package.json", encoding="utf-8"))
+# Only the free-text fields need escaping; the rest are identifiers and a semver range,
+# which the marketplace grammar already confines to characters XML does not care about.
+for key, value in (
+    ("name", manifest["name"]),
+    ("publisher", manifest["publisher"]),
+    ("version", manifest["version"]),
+    ("engine", manifest["engines"]["vscode"]),
+    ("display", escape(manifest["displayName"])),
+    ("summary", escape(manifest["description"])),
+):
+    print(f"{key}={quote(value)}")
+PY
+)
+eval "$fields"
 
 out="$PWD/$name-$version.vsix"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
 
 mkdir -p "$stage/extension"
-tar -cf - --exclude=.git --exclude='*.vsix' . | (cd "$stage/extension" && tar -xf -)
+tar -cf - --exclude=.git --exclude=node_modules --exclude=.DS_Store --exclude='*.vsix' . |
+    (cd "$stage/extension" && tar -xf -)
 
 cat > "$stage/extension.vsixmanifest" <<XML
 <?xml version="1.0" encoding="utf-8"?>

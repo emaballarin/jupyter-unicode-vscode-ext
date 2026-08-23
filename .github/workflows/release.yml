@@ -1,0 +1,171 @@
+# Regenerate, check, package, publish -- in that order, each gated on the one before.
+#
+# Two release surfaces. A `v*` tag cuts an immutable Release at exactly that version. Every
+# other push to the default branch force-updates a single rolling prerelease called `edge`,
+# so the newest build always sits at one stable URL instead of accumulating a release per
+# commit. Pushes to other branches build and test but publish only a workflow artifact.
+#
+# The version in package.json is never edited here in a way that reaches git: a tag build
+# uses it as-is, and an edge build stamps `+ci.<run>.g<sha>` onto it in the working tree
+# only. The suffix is build metadata (`+`), not a prerelease (`-`), because VS Code reads
+# `0.1.0-dev.5` as older than `0.1.0` and refuses to install it over a release without
+# `--force`, whereas `0.1.0+ci.5` installs cleanly over both a release and a prior build.
+name: release
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # One publish at a time, or two pushes race to recreate the `edge` release.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Regenerate the symbol tables
+        # The committed tables are the source of truth; this only proves they still match
+        # upstream. Drift is a deliberate, reviewable commit, not something CI does quietly.
+        run: |
+          ./tools/gen-symbols
+          if ! git diff --quiet -- data/; then
+            {
+              echo "### Symbol tables are stale"
+              echo
+              echo "Upstream Julia has moved. Run \`tools/gen-symbols\` locally and commit the result."
+              echo
+              echo '```'
+              git --no-pager diff --stat -- data/
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            git --no-pager diff -- data/ | head -200
+            exit 1
+          fi
+          echo "symbol tables match upstream"
+
+      - name: Test
+        run: ./tools/test
+
+      - name: Decide the version
+        id: version
+        run: |
+          base=$(python3 -c 'import json; print(json.load(open("package.json"))["version"])')
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            tag="${{ github.ref_name }}"
+            want="${tag#v}"
+            if [ "$want" != "$base" ]; then
+              echo "::error::tag $tag disagrees with package.json version $base -- edit the version or retag"
+              exit 1
+            fi
+            version="$base"
+            channel="release"
+          else
+            version="$base+ci.${{ github.run_number }}.g$(git rev-parse --short HEAD)"
+            channel="edge"
+          fi
+          {
+            echo "version=$version"
+            echo "channel=$channel"
+          } >> "$GITHUB_OUTPUT"
+          echo "building $version ($channel)"
+
+      - name: Stamp the version
+        # Working tree only. Nothing here is committed or pushed.
+        run: |
+          python3 - "${{ steps.version.outputs.version }}" <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          path = pathlib.Path("package.json")
+          manifest = json.loads(path.read_text(encoding="utf-8"))
+          manifest["version"] = sys.argv[1]
+          path.write_text(json.dumps(manifest, indent=4, ensure_ascii=False) + "\n", encoding="utf-8")
+          PY
+
+      - name: Package
+        id: package
+        run: |
+          vsix=$(./tools/package | tail -1)
+          echo "path=$vsix" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$vsix")" >> "$GITHUB_OUTPUT"
+          python3 - "$vsix" "${{ steps.version.outputs.version }}" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ElementTree
+          import zipfile
+
+          vsix, expected = sys.argv[1], sys.argv[2]
+          with zipfile.ZipFile(vsix) as archive:
+              document = ElementTree.fromstring(archive.read("extension.vsixmanifest"))
+              assert "extension/package.json" in archive.namelist()
+          namespace = {"v": "http://schemas.microsoft.com/developer/vsx-schema/2011"}
+          found = document.find(".//v:Identity", namespace).get("Version")
+          assert found == expected, f"manifest says {found}, expected {expected}"
+          print(f"{vsix} carries version {found}")
+          PY
+
+      - name: Publish the tagged release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            "${{ steps.package.outputs.path }}#${{ steps.package.outputs.name }}"
+
+      - name: Publish the rolling edge build
+        if: github.ref_type == 'branch' && github.ref_name == github.event.repository.default_branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # A stable asset name, so the newest edge build always lives at the same URL.
+          asset="jupyter-unicode-vscode-ext-edge.vsix"
+          cp "${{ steps.package.outputs.path }}" "$asset"
+          # Delete and recreate rather than edit: the tag has to move to this commit.
+          gh release delete edge --yes --cleanup-tag || true
+          gh release create edge \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Edge build" \
+            --notes "Built from \`${GITHUB_SHA:0:7}\` on \`${{ github.ref_name }}\`, run ${{ github.run_number }}.
+
+          Version \`${{ steps.version.outputs.version }}\`. This is a rolling prerelease: it is replaced on every push, and the download URL below is stable.
+
+          \`\`\`sh
+          code --install-extension $asset
+          \`\`\`" \
+            "$asset"
+
+      - name: Upload the build for a non-default branch
+        if: github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.path }}
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "| | |"
+            echo "|---|---|"
+            echo "| version | \`${{ steps.version.outputs.version }}\` |"
+            echo "| channel | ${{ steps.version.outputs.channel }} |"
+            echo "| commit | \`${GITHUB_SHA:0:7}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"

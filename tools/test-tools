@@ -1,0 +1,218 @@
+#!/usr/bin/env python3
+"""Check that the three scripts under tools/ still run, without disturbing the tree.
+
+They are the parts with no test behind them: `check` guards the data, `gen-symbols`
+rebuilds it, `package` ships it, and each is normally exercised only by a human running it.
+A rename, a moved field, a shell quoting slip breaks them silently until the day one is
+needed.
+
+Two constraints shape how they are run here. Nothing may modify the working tree -- the
+final check hashes it before and after and insists they agree -- so `package` runs against a
+copy and `gen-symbols` is exercised through its parser rather than its `main`, which would
+fetch from the network and overwrite data/. And `check` is run against deliberately broken
+copies as well as a good one: a verifier that cannot fail is worth nothing, and its verdict
+is what the release workflow gates on.
+"""
+
+import hashlib
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+import xml.etree.ElementTree as ElementTree
+import zipfile
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_loader
+from pathlib import Path
+
+# Importing gen-symbols must not leave a __pycache__ behind; the last test forbids it.
+sys.dont_write_bytecode = True
+
+ROOT = Path(__file__).resolve().parent.parent
+IGNORED = shutil.ignore_patterns(".git", "*.vsix", "node_modules", "__pycache__", ".DS_Store")
+
+failures = []
+run = 0
+
+
+def test(name):
+    """Decorator: run the body, collect the failure rather than stopping at the first."""
+
+    def wrap(body):
+        global run
+        run += 1
+        try:
+            body()
+        except Exception as error:  # noqa: BLE001 - a failed check is a report, not a crash
+            failures.append(f"{name}\n  {type(error).__name__}: {error}")
+
+    return wrap
+
+
+def digest(root):
+    """A hash of every file under `root`, path and content alike."""
+    total = hashlib.sha256()
+    for path in sorted(p for p in root.rglob("*") if p.is_file()):
+        relative = path.relative_to(root)
+        if relative.parts and relative.parts[0] in {".git", "node_modules", "__pycache__"}:
+            continue
+        if path.suffix == ".vsix":
+            continue
+        total.update(str(relative).encode("utf-8"))
+        total.update(path.read_bytes())
+    return total.hexdigest()
+
+
+def copy_tree(destination):
+    """The repository, minus what packaging and git leave lying around."""
+    shutil.copytree(ROOT, destination, ignore=IGNORED)
+    return destination
+
+
+def run_script(script, cwd):
+    return subprocess.run(
+        [str(script)], cwd=str(cwd), capture_output=True, text=True, timeout=120, check=False
+    )
+
+
+BEFORE = digest(ROOT)
+
+
+@test("every script under tools/ is executable and has a shebang")
+def _():
+    for script in sorted(ROOT.glob("tools/*")):
+        if script.suffix == ".js" or not script.is_file():
+            continue
+        assert script.stat().st_mode & 0o111, f"{script.name} is not executable"
+        first = script.read_bytes().split(b"\n", 1)[0]
+        assert first.startswith(b"#!"), f"{script.name} has no shebang"
+
+
+@test("tools/check passes on the tree as committed")
+def _():
+    with tempfile.TemporaryDirectory() as tmp:
+        good = copy_tree(Path(tmp) / "good")
+        result = run_script(good / "tools" / "check", good)
+        assert result.returncode == 0, f"exit {result.returncode}: {result.stderr.strip()}"
+        assert "ok:" in result.stdout, result.stdout
+
+
+@test("tools/check fails on data it is supposed to reject")
+def _():
+    # A verifier that returns the same verdict either way is not a verifier. Each corruption
+    # below targets a different check, so a single one going vacuous is still caught.
+    def broken(mutate, expected):
+        with tempfile.TemporaryDirectory() as tmp:
+            tree = copy_tree(Path(tmp) / "broken")
+            mutate(tree)
+            result = run_script(tree / "tools" / "check", tree)
+            assert result.returncode != 0, f"accepted a tree it should reject ({expected})"
+            assert expected in result.stderr, f"expected {expected!r}, got: {result.stderr.strip()}"
+
+    def drop_beta(tree):
+        path = tree / "data" / "jupyter.json"
+        names = [n for n in json.loads(path.read_text(encoding="utf-8")) if n != "\\beta"]
+        path.write_text(json.dumps(names, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
+
+    def drop_guard(tree):
+        path = tree / "package.json"
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        binding = manifest["contributes"]["keybindings"][0]
+        binding["when"] = binding["when"].replace(" && !suggestWidgetVisible", "")
+        path.write_text(json.dumps(manifest, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
+
+    def break_icon(tree):
+        (tree / "images" / "icon.png").unlink()
+
+    broken(drop_beta, "\\beta should be in the jupyter set")
+    broken(drop_guard, "lost its !suggestWidgetVisible guard")
+    broken(break_icon, "is missing")
+
+
+@test("tools/gen-symbols imports without fetching, and parses the upstream shape")
+def _():
+    loader = SourceFileLoader("gen_symbols", str(ROOT / "tools" / "gen-symbols"))
+    module = module_from_spec(spec_from_loader(loader.name, loader))
+    # Guarded by `if __name__ == "__main__"`, so importing must not reach the network.
+    loader.exec_module(module)
+
+    fixture = "\n".join(
+        [
+            "#=",
+            '    "\\\\ghost" => "\\u2620",',
+            "=#",
+            'const blackboard = "\\\\bb"',
+            "latex_symbols = Dict(",
+            '    "\\\\alpha" => "α",',
+            '    "\\\\tilde" => "\\u0303",',
+            '    "\\\\bfA" => "\\U0001D400",',
+            '    blackboard*"R" => "ℝ",',
+            ")",
+        ]
+    )
+    symbols = module.parse(fixture)
+    assert symbols.get("\\alpha") == "α", symbols
+    assert symbols.get("\\tilde") == "̃", "a \\u escape must be resolved"
+    assert symbols.get("\\bfA") == chr(0x1D400), "an astral \\U escape must be resolved"
+    assert symbols.get("\\bbR") == "ℝ", "the prefix concatenation must be applied"
+    assert "\\ghost" not in symbols, "the #= =# preamble must be stripped"
+
+    assert module.identifier_safe("α"), "alpha is legal in a python name"
+    assert not module.identifier_safe("∑"), "sum is not"
+    assert module.unescape(r"A") == "A"
+
+
+@test("tools/package builds an installable vsix from a copy of the tree")
+def _():
+    if shutil.which("zip") is None:
+        print("skip: no zip, cannot exercise tools/package", file=sys.stderr)
+        return
+    manifest = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+    with tempfile.TemporaryDirectory() as tmp:
+        tree = copy_tree(Path(tmp) / "tree")
+        result = run_script(tree / "tools" / "package", tree)
+        assert result.returncode == 0, f"exit {result.returncode}: {result.stderr.strip()}"
+
+        vsix = Path(result.stdout.strip().splitlines()[-1])
+        assert vsix.is_file(), f"{vsix} was announced but not written"
+        assert zipfile.is_zipfile(vsix), "a vsix is a zip"
+
+        with zipfile.ZipFile(vsix) as archive:
+            members = set(archive.namelist())
+            for required in (
+                "extension.vsixmanifest",
+                "[Content_Types].xml",
+                "extension/package.json",
+                "extension/src/extension.js",
+                "extension/data/symbols.json",
+                "extension/images/icon.png",
+                "extension/LICENSE",
+            ):
+                assert required in members, f"{required} is missing from the vsix"
+            assert not any("node_modules" in name for name in members), "node_modules shipped"
+            document = ElementTree.fromstring(archive.read("extension.vsixmanifest"))
+
+        namespace = {"v": "http://schemas.microsoft.com/developer/vsx-schema/2011"}
+        identity = document.find(".//v:Identity", namespace)
+        assert identity.get("Id") == manifest["name"], identity.get("Id")
+        assert identity.get("Version") == manifest["version"], identity.get("Version")
+        assert identity.get("Publisher") == manifest["publisher"], identity.get("Publisher")
+        # The manifest is XML and package.json is JSON, so the text has to survive both
+        # decodings: a raw copy shipped `\\beta` where package.json means `\beta`.
+        described = document.find(".//v:Description", namespace).text
+        assert described == manifest["description"], f"{described!r} != {manifest['description']!r}"
+        assert document.find(".//v:DisplayName", namespace).text == manifest["displayName"]
+
+
+@test("none of the above touched the working tree")
+def _():
+    assert digest(ROOT) == BEFORE, "a tool test modified the repository"
+    assert not list(ROOT.glob("*.vsix")), "a vsix was left in the tree"
+
+
+if failures:
+    for failure in failures:
+        print(f"FAIL {failure}", file=sys.stderr)
+    sys.exit(1)
+print(f"ok: {run} tool tests")

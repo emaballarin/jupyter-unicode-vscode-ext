@@ -1,9 +1,12 @@
 #!/bin/sh
 # Run every check in the repo.
 #
-# src/symbols.js imports nothing from `vscode`, so its logic runs under a plain node --
+# The scripts in here are covered too, by tools/test-tools: it runs them against copies
+# so the tree is never touched, and it feeds tools/check broken data to confirm the
+# checker can still fail. src/symbols.js imports nothing from `vscode`, so its logic
+# runs under a plain node --
 # and if none is installed, VS Code ships one inside its own app bundle, which is enough.
-# Nothing here covers the Tab keybinding itself; see the checklist in README.
+# Nothing here covers the Tab keybinding itself; see the checklist in test/scratch.ipynb.
 set -e
 
 cd "$(dirname "$0")/.."
@@ -22,3 +25,4 @@ fi
 python3 tools/check
 RUN tools/test-symbols.js
 RUN tools/test-activate.js
+python3 tools/test-tools

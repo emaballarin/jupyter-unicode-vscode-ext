@@ -27,4 +27,4 @@ code --install-extension jupyter-unicode-vscode-ext-0.1.0.vsix
 
 ## Licence
 
-MIT. The symbol table is derived from Julia, also MIT.
+MIT — see [LICENSE](LICENSE). The symbol table is derived from Julia, also MIT.

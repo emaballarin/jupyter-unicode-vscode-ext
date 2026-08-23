@@ -17,7 +17,7 @@
     "main": "./src/extension.js",
     "activationEvents": [
         "onNotebook:jupyter-notebook",
-        "onLanguage:python"
+        "onStartupFinished"
     ],
     "contributes": {
         "commands": [

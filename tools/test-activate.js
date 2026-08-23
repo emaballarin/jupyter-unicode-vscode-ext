@@ -144,6 +144,12 @@ test("the shipped defaults cover python, markdown and plain text", () => {
     assert.deepStrictEqual(defaults["jupyterUnicode.languages"].default, ["python", "markdown", "plaintext"]);
 });
 
+test("activates without depending on the configured languages", () => {
+    // `activationEvents` cannot name a language the user has yet to add to the setting, so
+    // adding julia there must not leave the extension asleep on a .jl file.
+    assert.ok(manifest.activationEvents.includes("onStartupFinished"), "onStartupFinished");
+});
+
 test("does not claim the backslash trigger by default", () => {
     assert.deepStrictEqual(calls.providers[0].triggers, []);
 });

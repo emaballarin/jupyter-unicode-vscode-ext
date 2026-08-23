@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Regenerate data/symbols.json and data/jupyter.json from Julia's REPL symbol table.
+# The docstring is raw: it names LaTeX escapes like \underrightarrow, and `\u` not
+# followed by four hex digits is a SyntaxError, not a warning.
+r"""Regenerate data/symbols.json and data/jupyter.json from Julia's REPL symbol table.
 
 Julia's latex_symbols.jl is the upstream source IPython derives its own table from, so
 taking it directly gives us both sets from one parse: everything, and the identifier-safe

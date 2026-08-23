@@ -85,12 +85,15 @@ def main():
     jupyter = sorted(name for name, char in symbols.items() if identifier_safe(char))
 
     data = here / "data"
+    # Four spaces, matching the rest of the repo: the generated files are read in diffs
+    # like any other, and an indent that disagrees with the formatter rewrites every line
+    # of both tables the next time either is touched.
     (data / "symbols.json").write_text(
-        json.dumps(dict(sorted(symbols.items())), ensure_ascii=False, indent=0) + "\n",
+        json.dumps(dict(sorted(symbols.items())), ensure_ascii=False, indent=4) + "\n",
         encoding="utf-8",
     )
     (data / "jupyter.json").write_text(
-        json.dumps(jupyter, ensure_ascii=False, indent=0) + "\n", encoding="utf-8"
+        json.dumps(jupyter, ensure_ascii=False, indent=4) + "\n", encoding="utf-8"
     )
     print(f"{len(symbols)} symbols, {len(jupyter)} identifier-safe")
 

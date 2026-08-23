@@ -1,62 +1,62 @@
 {
-  "name": "jupyter-unicode-vscode-ext",
-  "displayName": "Jupyter Unicode input",
-  "description": "Type \\beta and press Tab to get β, the way Jupyter notebooks do.",
-  "icon": "images/icon.png",
-  "version": "0.1.0",
-  "publisher": "atcold",
-  "private": true,
-  "license": "MIT",
-  "engines": {
-    "vscode": "^1.75.0"
-  },
-  "categories": [
-    "Notebooks",
-    "Other"
-  ],
-  "main": "./src/extension.js",
-  "activationEvents": [
-    "onNotebook:jupyter-notebook",
-    "onLanguage:python"
-  ],
-  "contributes": {
-    "commands": [
-      {
-        "command": "jupyterUnicode.complete",
-        "title": "Jupyter Unicode: Complete the LaTeX name at the cursor"
-      }
+    "name": "jupyter-unicode-vscode-ext",
+    "displayName": "Jupyter Unicode input",
+    "description": "Type \\beta and press Tab to get β, the way Jupyter notebooks do.",
+    "icon": "images/icon.png",
+    "version": "0.1.0",
+    "publisher": "atcold",
+    "private": true,
+    "license": "MIT",
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "categories": [
+        "Notebooks",
+        "Other"
     ],
-    "keybindings": [
-      {
-        "command": "jupyterUnicode.complete",
-        "key": "tab",
-        "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible && !editorTabMovesFocus && !inSnippetMode && jupyterUnicode.atLatexToken"
-      }
+    "main": "./src/extension.js",
+    "activationEvents": [
+        "onNotebook:jupyter-notebook",
+        "onLanguage:python"
     ],
-    "configuration": {
-      "title": "Jupyter Unicode input",
-      "properties": {
-        "jupyterUnicode.triggerOnBackslash": {
-          "type": "boolean",
-          "default": false,
-          "description": "Open the popup as soon as a backslash is typed, rather than waiting for Tab. Off by default, since Jupyter waits for Tab."
-        },
-        "jupyterUnicode.composeAccents": {
-          "type": "boolean",
-          "default": true,
-          "description": "After inserting a combining mark, fold it into the character it modifies, so y\\tilde becomes the single codepoint ỹ rather than y followed by U+0303. Turn off to match Jupyter exactly."
-        },
-        "jupyterUnicode.languages": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "default": [
-            "python"
-          ],
-          "description": "Languages to complete in outside notebook cells, where completion is always on. Add markdown or julia to widen it."
+    "contributes": {
+        "commands": [
+            {
+                "command": "jupyterUnicode.complete",
+                "title": "Jupyter Unicode: Complete the LaTeX name at the cursor"
+            }
+        ],
+        "keybindings": [
+            {
+                "command": "jupyterUnicode.complete",
+                "key": "tab",
+                "when": "editorTextFocus && !editorReadonly && !suggestWidgetVisible && !editorTabMovesFocus && !inSnippetMode && jupyterUnicode.atLatexToken"
+            }
+        ],
+        "configuration": {
+            "title": "Jupyter Unicode input",
+            "properties": {
+                "jupyterUnicode.triggerOnBackslash": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Open the popup as soon as a backslash is typed, rather than waiting for Tab. Off by default, since Jupyter waits for Tab."
+                },
+                "jupyterUnicode.composeAccents": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "After inserting a combining mark, fold it into the character it modifies, so y\\tilde becomes the single codepoint ỹ rather than y followed by U+0303. Turn off to match Jupyter exactly."
+                },
+                "jupyterUnicode.languages": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    },
+                    "default": [
+                        "python"
+                    ],
+                    "description": "Languages to complete in outside notebook cells, where completion is always on. Add markdown or julia to widen it."
+                }
+            }
         }
-      }
     }
-  }
 }

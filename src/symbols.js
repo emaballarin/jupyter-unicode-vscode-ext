@@ -1,10 +1,10 @@
-'use strict';
+"use strict";
 
 // The symbol table and the text scanning around it. Everything here is independent of the
 // completion machinery, so it stays testable by eye and reusable from a command.
 
-const fs = require('fs');
-const path = require('path');
+const fs = require("fs");
+const path = require("path");
 
 /**
  * Characters that may follow the backslash in a name. Beyond letters and digits this
@@ -20,33 +20,33 @@ const TOKEN_CHARACTER = /[A-Za-z0-9^_/]/;
 const MAX_TOKEN_LENGTH = 40;
 
 /** U+25CC, the placeholder a lone combining mark is conventionally drawn on. */
-const DOTTED_CIRCLE = '◌';
+const DOTTED_CIRCLE = "◌";
 
 let allSymbols = null;
 let jupyterNames = null;
 
 /** @returns {Record<string, string>} every name Julia's REPL knows, ~2550 of them. */
 function all() {
-  if (!allSymbols) {
-    allSymbols = load('symbols.json');
-  }
-  return allSymbols;
+    if (!allSymbols) {
+        allSymbols = load("symbols.json");
+    }
+    return allSymbols;
 }
 
 /** @returns {Record<string, string>} only names whose character is valid in a Python name. */
 function jupyter() {
-  if (!jupyterNames) {
-    const everything = all();
-    jupyterNames = {};
-    for (const name of load('jupyter.json')) {
-      jupyterNames[name] = everything[name];
+    if (!jupyterNames) {
+        const everything = all();
+        jupyterNames = {};
+        for (const name of load("jupyter.json")) {
+            jupyterNames[name] = everything[name];
+        }
     }
-  }
-  return jupyterNames;
+    return jupyterNames;
 }
 
 function load(file) {
-  return JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'data', file), 'utf8'));
+    return JSON.parse(fs.readFileSync(path.join(__dirname, "..", "data", file), "utf8"));
 }
 
 /**
@@ -62,34 +62,34 @@ function load(file) {
  * @returns {{ text: string, start: number, preceding: string } | null}
  */
 function tokenAt(document, position) {
-  const line = document.lineAt(position.line).text;
-  const cursor = position.character;
-  const limit = Math.max(0, cursor - MAX_TOKEN_LENGTH);
+    const line = document.lineAt(position.line).text;
+    const cursor = position.character;
+    const limit = Math.max(0, cursor - MAX_TOKEN_LENGTH);
 
-  let start = cursor;
-  while (start > limit && TOKEN_CHARACTER.test(line[start - 1])) {
+    let start = cursor;
+    while (start > limit && TOKEN_CHARACTER.test(line[start - 1])) {
+        start -= 1;
+    }
+    if (start === 0 || line[start - 1] !== "\\") {
+        return null;
+    }
     start -= 1;
-  }
-  if (start === 0 || line[start - 1] !== '\\') {
-    return null;
-  }
-  start -= 1;
 
-  // An escaped backslash is not the start of a name: in `"a\\beta"` the user means a
-  // literal backslash followed by the word, and completing there would be wrong.
-  let backslashes = 0;
-  while (start - backslashes > 0 && line[start - backslashes - 1] === '\\') {
-    backslashes += 1;
-  }
-  if (backslashes % 2 === 1) {
-    return null;
-  }
+    // An escaped backslash is not the start of a name: in `"a\\beta"` the user means a
+    // literal backslash followed by the word, and completing there would be wrong.
+    let backslashes = 0;
+    while (start - backslashes > 0 && line[start - backslashes - 1] === "\\") {
+        backslashes += 1;
+    }
+    if (backslashes % 2 === 1) {
+        return null;
+    }
 
-  return {
-    text: line.slice(start, cursor),
-    start,
-    preceding: start > 0 ? [...line.slice(0, start)].pop() || '' : '',
-  };
+    return {
+        text: line.slice(start, cursor),
+        start,
+        preceding: start > 0 ? [...line.slice(0, start)].pop() || "" : "",
+    };
 }
 
 /**
@@ -104,10 +104,10 @@ function tokenAt(document, position) {
  * @param {string} preceding the character before the backslash, if any
  */
 function preview(char, preceding) {
-  if (!isCombining(char)) {
-    return char;
-  }
-  return (preceding || DOTTED_CIRCLE) + char;
+    if (!isCombining(char)) {
+        return char;
+    }
+    return (preceding || DOTTED_CIRCLE) + char;
 }
 
 /**
@@ -122,20 +122,20 @@ function preview(char, preceding) {
  * @param {string} char
  */
 function isCombining(char) {
-  const code = char.codePointAt(0);
-  return (
-    (code >= 0x0300 && code <= 0x036f) || // combining diacritical marks
-    (code >= 0x1ab0 && code <= 0x1aff) || // ... extended
-    (code >= 0x1dc0 && code <= 0x1dff) || // ... supplement
-    (code >= 0x20d0 && code <= 0x20ff) // ... for symbols
-  );
+    const code = char.codePointAt(0);
+    return (
+        (code >= 0x0300 && code <= 0x036f) || // combining diacritical marks
+        (code >= 0x1ab0 && code <= 0x1aff) || // ... extended
+        (code >= 0x1dc0 && code <= 0x1dff) || // ... supplement
+        (code >= 0x20d0 && code <= 0x20ff) // ... for symbols
+    );
 }
 
 module.exports = {
-  all,
-  jupyter,
-  tokenAt,
-  preview,
-  isCombining,
-  DOTTED_CIRCLE,
+    all,
+    jupyter,
+    tokenAt,
+    preview,
+    isCombining,
+    DOTTED_CIRCLE,
 };

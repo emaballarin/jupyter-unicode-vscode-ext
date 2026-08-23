@@ -47,8 +47,16 @@ function activate(context) {
         })
     );
 
+    // Last value pushed, so an unchanged one is not pushed again. This runs on every cursor
+    // move, and `setContext` is a round trip to the context-key service each time.
+    /** @type {boolean | null} */
+    let pushed = null;
     const updateContext = (editor) => {
-        const armed = Boolean(editor && symbols.tokenAt(editor.document, editor.selection.active));
+        const armed = atCompletableName(editor);
+        if (armed === pushed) {
+            return;
+        }
+        pushed = armed;
         vscode.commands.executeCommand("setContext", AT_TOKEN, armed);
     };
     updateContext(vscode.window.activeTextEditor);
@@ -65,6 +73,25 @@ function activate(context) {
     );
 
     context.subscriptions.push(vscode.commands.registerCommand("jupyterUnicode.compose", compose));
+}
+
+/**
+ * Should Tab complete rather than indent?
+ *
+ * Two things beyond "the text is shaped like a name". A non-empty selection means Tab is
+ * being asked to indent the block, and the cursor happening to rest after a `\name` at one
+ * end of it is no reason to steal that. And a name with nothing to offer -- `C:\Users`, a
+ * mistyped `\zzz` -- must fall through too, or Tab neither indents nor completes, which is
+ * the exact regression the `when` clause in package.json exists to prevent.
+ *
+ * @param {vscode.TextEditor | undefined} editor
+ */
+function atCompletableName(editor) {
+    if (!editor || !editor.selection.isEmpty) {
+        return false;
+    }
+    const token = symbols.tokenAt(editor.document, editor.selection.active);
+    return Boolean(token) && symbols.hasMatch(editor.document.languageId, token.text);
 }
 
 /**

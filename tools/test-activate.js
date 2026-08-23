@@ -15,6 +15,8 @@ const calls = {
     providers: [],
     commands: new Map(),
     context: new Map(),
+    /** Every setContext write in order, so a redundant one is visible. */
+    contextWrites: [],
     listeners: {},
 };
 
@@ -80,6 +82,7 @@ const vscode = {
         executeCommand(name, key, value) {
             if (name === "setContext") {
                 calls.context.set(key, value);
+                calls.contextWrites.push(value);
             }
             return Promise.resolve();
         },
@@ -175,6 +178,46 @@ test("arms the context key only just after a name", () => {
     assert.strictEqual(armed("beta", 4), false);
     assert.strictEqual(armed("    ", 4), false, "plain indentation must leave Tab alone");
     assert.strictEqual(armed("def f():", 8), false);
+});
+
+test("does not arm where the name has nothing to complete", () => {
+    // Arming on the shape of the text alone swallowed Tab entirely here: the binding fired,
+    // the provider returned an empty list, and the line was neither completed nor indented.
+    const armed = (line, character, options) => {
+        calls.listeners.selection({ textEditor: editorOf(line, character, options) });
+        return calls.context.get("jupyterUnicode.atLatexToken");
+    };
+    assert.strictEqual(armed("C:\\Users", 8), false, "a windows path must still indent");
+    assert.strictEqual(armed("a\\zzzz", 6), false, "a mistyped name must still indent");
+    assert.strictEqual(armed("\\bet", 4), true, "a real prefix still arms");
+    // \sum is outside the identifier-safe subset, so it arms in prose and not in code.
+    assert.strictEqual(armed("\\sum", 4), false, "code draws on the identifier-safe subset");
+    assert.strictEqual(armed("\\sum", 4, { language: "markdown" }), true, "prose draws on all of it");
+});
+
+test("does not arm while a selection is waiting to be indented", () => {
+    const armed = (line, character, options) => {
+        calls.listeners.selection({ textEditor: editorOf(line, character, options) });
+        return calls.context.get("jupyterUnicode.atLatexToken");
+    };
+    assert.strictEqual(armed("    y = \\beta", 13), true, "the cursor alone arms");
+    assert.strictEqual(
+        armed("    y = \\beta", 13, { isEmpty: false }),
+        false,
+        "Tab must indent the block, not complete at one end of it"
+    );
+});
+
+test("writes the context key only when it changes", () => {
+    // This runs on every cursor move, and each write is a round trip to the context service.
+    calls.listeners.selection({ textEditor: editorOf("beta", 4) });
+    const before = calls.contextWrites.length;
+    for (let i = 0; i < 5; i += 1) {
+        calls.listeners.selection({ textEditor: editorOf("beta", 4) });
+    }
+    assert.strictEqual(calls.contextWrites.length, before, "five identical moves, no writes");
+    calls.listeners.selection({ textEditor: editorOf("\\beta", 5) });
+    assert.strictEqual(calls.contextWrites.length, before + 1, "the change itself is written");
 });
 
 test("offers items covering the whole name, backslash included", () => {

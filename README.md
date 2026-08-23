@@ -10,6 +10,8 @@ y\tilde <Tab>  →  ỹ
 
 Works in notebook cells, code and markdown alike, in the Interactive Window, and in `.py`, `.md` and `.txt` files. Outside a `\name`, `<Tab>` still indents exactly as before.
 
+`<Ctrl+Space>` works too, and always has: this is an ordinary completion provider, and `<Ctrl+Space>` is VS Code's own binding for the suggestion list. The two differ only in when they fire. `<Tab>` stands down wherever it would otherwise indent — with a selection open, or after text like `C:\Users` that merely looks like a name — whereas `<Ctrl+Space>` asks unconditionally. In a `.txt` file it is this extension's registration that makes `<Ctrl+Space>` do anything at all, since VS Code gates that binding on there being a provider.
+
 Code gets the table Jupyter offers: names whose character is legal in a Python identifier, so `\sum` stays uncompleted where `∑` would only be a syntax error. Markdown and plain text get the whole table, `\sum` → `∑` included, since prose has no such rule. The cell's own language decides, so a markdown cell and the code cell beneath it behave differently.
 
 ## Install

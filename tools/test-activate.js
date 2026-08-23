@@ -17,6 +17,8 @@ const calls = {
     context: new Map(),
     /** Every setContext write in order, so a redundant one is visible. */
     contextWrites: [],
+    /** Every executeCommand name in order. */
+    executed: [],
     listeners: {},
 };
 
@@ -68,6 +70,7 @@ const vscode = {
     CompletionItem,
     CompletionList,
     CompletionItemKind: { Text: 1 },
+    CompletionTriggerKind: { Invoke: 0, TriggerCharacter: 1, TriggerForIncompleteCompletions: 2 },
     languages: {
         registerCompletionItemProvider(selector, provider, ...triggers) {
             calls.providers.push({ selector, provider, triggers });
@@ -80,6 +83,7 @@ const vscode = {
             return { dispose() {} };
         },
         executeCommand(name, key, value) {
+            calls.executed.push(name);
             if (name === "setContext") {
                 calls.context.set(key, value);
                 calls.contextWrites.push(value);
@@ -304,6 +308,55 @@ test("offers the whole table in prose", () => {
             assert.strictEqual(match.insertText, character);
         }
     }
+});
+
+test("Tab and Ctrl+Space converge on the same trigger", () => {
+    // Ctrl+Space is VS Code's own binding for `editor.action.triggerSuggest`, gated on
+    // `editorHasCompletionItemProvider` -- which our registration is what satisfies, in a
+    // plain text file where nothing else would. The Tab command dispatches that same
+    // action, so the two paths reach this provider through identical code.
+    const before = calls.executed.length;
+    calls.commands.get("jupyterUnicode.complete")();
+    assert.deepStrictEqual(calls.executed.slice(before), ["editor.action.triggerSuggest"]);
+});
+
+test("answers an explicit invocation, not only a typed trigger character", () => {
+    // Trigger characters govern automatic popups only; an explicit invoke reaches every
+    // registered provider regardless, which is why the default empty list costs nothing.
+    assert.deepStrictEqual(calls.providers[0].triggers, [], "no trigger characters by default");
+    const { provider } = calls.providers[0];
+    for (const kind of Object.values(vscode.CompletionTriggerKind)) {
+        const list = provider.provideCompletionItems(documentOf("\\bet"), new Position(0, 4), undefined, {
+            triggerKind: kind,
+            triggerCharacter: kind === vscode.CompletionTriggerKind.TriggerCharacter ? "\\" : undefined,
+        });
+        assert.ok(
+            list.items.some((item) => item.name === "\\beta"),
+            `triggerKind ${kind} should still be answered`
+        );
+    }
+});
+
+test("Ctrl+Space is not gated by the Tab context key", () => {
+    // The context key exists only to keep Tab meaning indent; it must not narrow what an
+    // explicit request can complete. With a selection open Tab stands down, and Ctrl+Space
+    // still has to work.
+    calls.listeners.selection({ textEditor: editorOf("    y = \\bet", 12, { isEmpty: false }) });
+    assert.strictEqual(calls.context.get("jupyterUnicode.atLatexToken"), false, "Tab stands down");
+
+    const { provider } = calls.providers[0];
+    const list = provider.provideCompletionItems(documentOf("    y = \\bet"), new Position(0, 12));
+    assert.ok(
+        list.items.some((item) => item.name === "\\beta"),
+        "Ctrl+Space completes anyway"
+    );
+});
+
+test("registers for plain text, so Ctrl+Space has a provider to find there", () => {
+    // `editorHasCompletionItemProvider` is false in a .txt file with nothing registered, and
+    // VS Code's ctrl+space binding is gated on it -- so this registration is load-bearing.
+    const selectors = calls.providers[0].selector.map((s) => JSON.stringify(s));
+    assert.ok(selectors.includes('{"language":"plaintext"}'));
 });
 
 if (!process.exitCode) {

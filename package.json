@@ -52,9 +52,11 @@
                         "type": "string"
                     },
                     "default": [
-                        "python"
+                        "python",
+                        "markdown",
+                        "plaintext"
                     ],
-                    "description": "Languages to complete in outside notebook cells, where completion is always on. Add markdown or julia to widen it."
+                    "description": "Languages to complete in outside notebook cells, where completion is always on. Add julia or latex to widen it. Markdown and plain text draw on the whole symbol table; everything else is filtered to characters legal in a Python name, as Jupyter filters it."
                 }
             }
         }

@@ -7,8 +7,10 @@ const fs = require("fs");
 const path = require("path");
 
 /**
- * Characters that may follow the backslash in a name. Beyond letters and digits this
- * needs `^` and `_` for `\^2` and `\_1`, and `/` for the handful of names like `\1/4`.
+ * Characters that may follow the backslash in a name. Beyond letters and digits this needs
+ * `^` and `_` for the sub- and superscript names (`\^A`, `\_beta`), and digits and `/` for
+ * the fractions (`\1/4`). The last two are reachable only from the full table, which is
+ * what prose draws on; the identifier-safe subset contains no name with a digit in it.
  */
 const TOKEN_CHARACTER = /[A-Za-z0-9^_/]/;
 
@@ -22,8 +24,19 @@ const MAX_TOKEN_LENGTH = 40;
 /** U+25CC, the placeholder a lone combining mark is conventionally drawn on. */
 const DOTTED_CIRCLE = "◌";
 
+/**
+ * Documents that get the whole table rather than the identifier-safe subset.
+ *
+ * `\sum` is the point: ∑ cannot sit in a Python name, so IPython withholds it and so do we
+ * in code -- but in prose it is exactly what one reaches for. A notebook cell reports its
+ * own language, so a markdown cell lands here while the code cell beside it does not.
+ */
+const PROSE_LANGUAGES = new Set(["markdown", "plaintext"]);
+
 let allSymbols = null;
 let jupyterNames = null;
+let allEntries = null;
+let jupyterEntries = null;
 
 /** @returns {Record<string, string>} every name Julia's REPL knows, ~2550 of them. */
 function all() {
@@ -50,12 +63,105 @@ function load(file) {
 }
 
 /**
+ * @typedef {{ name: string, character: string, combining: boolean }} Entry
+ */
+
+/**
+ * The table a document draws on, sorted by name and built once.
+ *
+ * Sorted because both callers want a prefix range out of it, and a sorted array gives that
+ * by binary search -- which matters for the arming check, which runs on every cursor move.
+ *
+ * @param {string} languageId
+ * @returns {Entry[]}
+ */
+function entriesFor(languageId) {
+    if (PROSE_LANGUAGES.has(languageId)) {
+        if (!allEntries) {
+            allEntries = entriesOf(all());
+        }
+        return allEntries;
+    }
+    if (!jupyterEntries) {
+        jupyterEntries = entriesOf(jupyter());
+    }
+    return jupyterEntries;
+}
+
+/** @param {Record<string, string>} table @returns {Entry[]} */
+function entriesOf(table) {
+    return Object.keys(table)
+        .sort()
+        .map((name) => ({ name, character: table[name], combining: isCombining(table[name]) }));
+}
+
+/**
+ * Index of the first entry whose name is not less than `prefix`.
+ *
+ * Every name sharing a prefix is contiguous under lexicographic order, so this index is
+ * also the start of the run of matches, if there is one.
+ *
+ * @param {Entry[]} entries
+ * @param {string} prefix
+ */
+function lowerBound(entries, prefix) {
+    let low = 0;
+    let high = entries.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if (entries[middle].name < prefix) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return low;
+}
+
+/**
+ * Every entry whose name starts with `prefix`, in the order the popup wants them.
+ *
+ * @param {string} languageId
+ * @param {string} prefix
+ * @returns {Entry[]}
+ */
+function matches(languageId, prefix) {
+    const entries = entriesFor(languageId);
+    const start = lowerBound(entries, prefix);
+    let end = start;
+    while (end < entries.length && entries[end].name.startsWith(prefix)) {
+        end += 1;
+    }
+    return entries.slice(start, end);
+}
+
+/**
+ * Is there anything at all to complete for `prefix`?
+ *
+ * Kept separate from `matches` because this is the question the Tab binding asks on every
+ * cursor move, and it wants an answer without allocating the list. Arming on the shape of
+ * the text alone would swallow Tab after `C:\Users` or a stray `\zzz`, where there is
+ * nothing to offer and Tab must go on meaning indent.
+ *
+ * @param {string} languageId
+ * @param {string} prefix
+ */
+function hasMatch(languageId, prefix) {
+    const entries = entriesFor(languageId);
+    const index = lowerBound(entries, prefix);
+    return index < entries.length && entries[index].name.startsWith(prefix);
+}
+
+/**
  * The `\name` being typed at a position, if there is one.
  *
  * A backslash is not a word character, so the editor's own word range stops at the `n` of
  * `\beta` and every caller would have to widen it again. Scanning here once keeps the
  * definition of "a name" in a single place, shared by the completion provider and the
  * context key that arms the Tab binding.
+ *
+ * Note that this reports the shape of the text, not whether anything matches: ask
+ * `hasMatch` for that.
  *
  * @param {import('vscode').TextDocument} document
  * @param {import('vscode').Position} position
@@ -88,8 +194,28 @@ function tokenAt(document, position) {
     return {
         text: line.slice(start, cursor),
         start,
-        preceding: start > 0 ? [...line.slice(0, start)].pop() || "" : "",
+        preceding: characterBefore(line, start),
     };
+}
+
+/**
+ * The single character ending at `index`, or "" at the start of the line.
+ *
+ * Sliced rather than spread: this sits on the path walked at every cursor move, and
+ * spreading the whole prefix to take its last element allocates the length of the line for
+ * one character.
+ *
+ * @param {string} line
+ * @param {number} index
+ */
+function characterBefore(line, index) {
+    if (index <= 0) {
+        return "";
+    }
+    const unit = line.charCodeAt(index - 1);
+    // A low surrogate is the tail of an astral pair; taking one unit would halve a codepoint.
+    const width = unit >= 0xdc00 && unit <= 0xdfff && index > 1 ? 2 : 1;
+    return line.slice(index - width, index);
 }
 
 /**
@@ -134,8 +260,11 @@ function isCombining(char) {
 module.exports = {
     all,
     jupyter,
+    matches,
+    hasMatch,
     tokenAt,
     preview,
     isCombining,
     DOTTED_CIRCLE,
+    PROSE_LANGUAGES,
 };

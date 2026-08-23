@@ -9,7 +9,6 @@
 // with no handler behind it.
 
 const assert = require("assert");
-const path = require("path");
 const Module = require("module");
 
 const calls = {
@@ -47,10 +46,13 @@ class CompletionList {
     }
 }
 
+const manifest = require("../package.json");
+const defaults = manifest.contributes.configuration.properties;
+
 const settings = new Map([
     ["triggerOnBackslash", false],
     ["composeAccents", true],
-    ["languages", ["python"]],
+    ["languages", defaults["jupyterUnicode.languages"].default],
 ]);
 
 const listener = (name) => (handler) => {
@@ -111,16 +113,35 @@ function test(name, body) {
     }
 }
 
+/** The members of TextEditor that the context-key update touches. */
+function editorOf(line, character, { language = "python", isEmpty = true } = {}) {
+    return {
+        document: { lineAt: () => ({ text: line }), languageId: language },
+        selection: { active: new Position(0, character), isEmpty },
+    };
+}
+
+/** The members of TextDocument that the completion provider touches. */
+function documentOf(line, language = "python") {
+    return { lineAt: () => ({ text: line }), languageId: language };
+}
+
 const context = { subscriptions: [] };
 extension.activate(context);
 
-test("registers for notebook cells and for python, exactly once", () => {
+test("registers for notebook cells and for every configured language, exactly once", () => {
     // A python notebook cell matches both selectors. Registering once per selector offered
     // every symbol twice, which is what the popup actually showed.
     assert.strictEqual(calls.providers.length, 1, "one registration, or items come doubled");
     const selectors = calls.providers[0].selector.map((s) => JSON.stringify(s));
     assert.ok(selectors.includes('{"scheme":"vscode-notebook-cell"}'), "notebook cells");
-    assert.ok(selectors.includes('{"language":"python"}'), "python");
+    for (const language of settings.get("languages")) {
+        assert.ok(selectors.includes(`{"language":"${language}"}`), language);
+    }
+});
+
+test("the shipped defaults cover python, markdown and plain text", () => {
+    assert.deepStrictEqual(defaults["jupyterUnicode.languages"].default, ["python", "markdown", "plaintext"]);
 });
 
 test("does not claim the backslash trigger by default", () => {
@@ -128,7 +149,6 @@ test("does not claim the backslash trigger by default", () => {
 });
 
 test("every command in package.json has a handler", () => {
-    const manifest = require("../package.json");
     for (const { command } of manifest.contributes.commands) {
         assert.ok(calls.commands.has(command), `${command} is declared but not registered`);
     }
@@ -137,17 +157,12 @@ test("every command in package.json has a handler", () => {
 });
 
 test("the keybinding command is the one that is registered", () => {
-    const manifest = require("../package.json");
     assert.ok(calls.commands.has(manifest.contributes.keybindings[0].command));
 });
 
 test("arms the context key only just after a name", () => {
-    const editor = (line, character) => ({
-        document: { lineAt: () => ({ text: line }) },
-        selection: { active: new Position(0, character) },
-    });
-    const armed = (line, character) => {
-        calls.listeners.selection({ textEditor: editor(line, character) });
+    const armed = (line, character, options) => {
+        calls.listeners.selection({ textEditor: editorOf(line, character, options) });
         return calls.context.get("jupyterUnicode.atLatexToken");
     };
     assert.strictEqual(armed("\\beta", 5), true);
@@ -158,8 +173,7 @@ test("arms the context key only just after a name", () => {
 
 test("offers items covering the whole name, backslash included", () => {
     const { provider } = calls.providers[0];
-    const document = { lineAt: () => ({ text: "y\\tilde" }) };
-    const { items } = provider.provideCompletionItems(document, new Position(0, 7));
+    const { items } = provider.provideCompletionItems(documentOf("y\\tilde"), new Position(0, 7));
 
     const tilde = items.find((item) => item.name === "\\tilde");
     assert.strictEqual(tilde.range.start.character, 1, "the range takes the backslash");
@@ -169,10 +183,30 @@ test("offers items covering the whole name, backslash included", () => {
     assert.strictEqual(tilde.command.command, "jupyterUnicode.compose");
 });
 
+test("hands each request its own items", () => {
+    // Sharing one item per name and reassigning its range per request meant a second list
+    // rewrote the first one's ranges and previews under it, and the widget applies the range
+    // it finds at accept time.
+    const { provider } = calls.providers[0];
+    const first = provider
+        .provideCompletionItems(documentOf("y\\tilde"), new Position(0, 7))
+        .items.find((item) => item.name === "\\tilde");
+    const detail = first.label.detail;
+
+    const second = provider
+        .provideCompletionItems(documentOf("\\tilde"), new Position(0, 6))
+        .items.find((item) => item.name === "\\tilde");
+
+    assert.notStrictEqual(first, second, "two requests, two objects");
+    assert.strictEqual(first.range.start.character, 1, "the first range survives the second request");
+    assert.strictEqual(second.range.start.character, 0);
+    assert.strictEqual(first.label.detail, detail, "the first preview survives too");
+    assert.notStrictEqual(second.label.detail, detail, "and the second gets its own");
+});
+
 test("matches on the prefix, not fuzzily", () => {
     const { provider } = calls.providers[0];
-    const document = { lineAt: () => ({ text: "\\pi" }) };
-    const list = provider.provideCompletionItems(document, new Position(0, 3));
+    const list = provider.provideCompletionItems(documentOf("\\pi"), new Position(0, 3));
     const names = list.items.map((item) => item.name);
 
     assert.ok(names.includes("\\pi"), "the exact name is there");
@@ -183,7 +217,7 @@ test("matches on the prefix, not fuzzily", () => {
     assert.ok(list.isIncomplete, "the next keystroke must re-query, not re-filter this list");
 
     const beta = provider
-        .provideCompletionItems({ lineAt: () => ({ text: "\\bet" }) }, new Position(0, 4))
+        .provideCompletionItems(documentOf("\\bet"), new Position(0, 4))
         .items.find((item) => item.name === "\\beta");
     assert.strictEqual(beta.insertText, "β");
     assert.strictEqual(beta.command, undefined, "no composition for a standalone glyph");
@@ -191,17 +225,35 @@ test("matches on the prefix, not fuzzily", () => {
 
 test("stays silent where there is no name", () => {
     const { provider } = calls.providers[0];
-    const document = { lineAt: () => ({ text: "    pass" }) };
-    assert.strictEqual(provider.provideCompletionItems(document, new Position(0, 4)), undefined);
+    assert.strictEqual(provider.provideCompletionItems(documentOf("    pass"), new Position(0, 4)), undefined);
 });
 
-test("offers only what can sit in a python name", () => {
+test("offers only what can sit in a python name, in code", () => {
     const { provider } = calls.providers[0];
     // Python's identifier rules are why IPython drops these, and this follows IPython.
     for (const name of ["\\sum", "\\in", "\\to"]) {
-        const line = { lineAt: () => ({ text: name }) };
-        const { items } = provider.provideCompletionItems(line, new Position(0, name.length));
+        const { items } = provider.provideCompletionItems(documentOf(name), new Position(0, name.length));
         assert.ok(!items.some((item) => item.name === name), `${name} is not identifier-safe`);
+    }
+});
+
+test("offers the whole table in prose", () => {
+    const { provider } = calls.providers[0];
+    // ∑ cannot sit in a Python name, but a markdown cell is not a Python name.
+    for (const [name, character] of [
+        ["\\sum", "∑"],
+        ["\\in", "∈"],
+        ["\\to", "→"],
+    ]) {
+        for (const language of ["markdown", "plaintext"]) {
+            const { items } = provider.provideCompletionItems(
+                documentOf(name, language),
+                new Position(0, name.length)
+            );
+            const match = items.find((item) => item.name === name);
+            assert.ok(match, `${name} should be offered in ${language}`);
+            assert.strictEqual(match.insertText, character);
+        }
     }
 });
 

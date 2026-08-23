@@ -47,6 +47,9 @@ test("finds a name after other text", () => {
 test("reports the character before the backslash", () => {
     assert.strictEqual(scan("y\\tilde|").preceding, "y");
     assert.strictEqual(scan("\\tilde|").preceding, "");
+    // A whole codepoint, not the low half of one: the base here is two UTF-16 units.
+    assert.strictEqual(scan("\uD835\uDC66\\tilde|").preceding, "\uD835\uDC66");
+    assert.strictEqual([...scan("\uD835\uDC66\\tilde|").preceding].length, 1);
 });
 
 test("handles a partial name", () => {
@@ -54,6 +57,8 @@ test("handles a partial name", () => {
 });
 
 test("takes the digits and marks in \\_1 and \\^2", () => {
+    // Both are full-table names, offered in prose and withheld from code -- but the scan
+    // itself is about the shape of the text and does not know the difference.
     assert.strictEqual(scan("\\_1|").text, "\\_1");
     assert.strictEqual(scan("\\^2|").text, "\\^2");
 });
@@ -109,6 +114,36 @@ test("the two tables agree", () => {
     }
     assert.ok(!("\\sum" in jupyter), "\\sum is not identifier-safe");
     assert.strictEqual(all["\\sum"], "∑");
+});
+
+test("knows whether a prefix can complete at all", () => {
+    // What arms the Tab binding. Answering "yes" on shape alone swallowed Tab after a
+    // windows path or a mistyped name, where there is nothing to offer.
+    assert.ok(symbols.hasMatch("python", "\\bet"));
+    assert.ok(symbols.hasMatch("python", "\\"), "a bare backslash matches everything");
+    assert.ok(!symbols.hasMatch("python", "\\zzz"));
+    assert.ok(!symbols.hasMatch("python", "\\Users"));
+});
+
+test("prose draws on the whole table, code on the identifier-safe subset", () => {
+    assert.ok(!symbols.hasMatch("python", "\\sum"), "\\sum cannot sit in a python name");
+    for (const language of [...symbols.PROSE_LANGUAGES]) {
+        assert.ok(symbols.hasMatch(language, "\\sum"), `\\sum completes in ${language}`);
+    }
+    assert.strictEqual(symbols.matches("markdown", "\\").length, Object.keys(symbols.all()).length);
+    assert.strictEqual(symbols.matches("python", "\\").length, Object.keys(symbols.jupyter()).length);
+});
+
+test("matches returns exactly the prefix run", () => {
+    const names = symbols.matches("python", "\\pi").map((entry) => entry.name);
+    assert.ok(names.includes("\\pi"));
+    assert.ok(names.every((name) => name.startsWith("\\pi")), "nothing outside the prefix");
+    assert.deepStrictEqual(names, [...names].sort(), "sorted, as the binary search assumes");
+    assert.deepStrictEqual(symbols.matches("python", "\\zzz"), []);
+
+    const [tilde] = symbols.matches("python", "\\tilde");
+    assert.strictEqual(tilde.character, symbols.all()["\\tilde"]);
+    assert.strictEqual(tilde.combining, true);
 });
 
 if (!process.exitCode) {

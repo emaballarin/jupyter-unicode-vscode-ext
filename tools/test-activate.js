@@ -299,10 +299,7 @@ test("offers the whole table in prose", () => {
         ["\\to", "→"],
     ]) {
         for (const language of ["markdown", "plaintext"]) {
-            const { items } = provider.provideCompletionItems(
-                documentOf(name, language),
-                new Position(0, name.length)
-            );
+            const { items } = provider.provideCompletionItems(documentOf(name, language), new Position(0, name.length));
             const match = items.find((item) => item.name === name);
             assert.ok(match, `${name} should be offered in ${language}`);
             assert.strictEqual(match.insertText, character);

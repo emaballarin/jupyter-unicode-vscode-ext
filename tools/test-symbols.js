@@ -137,7 +137,10 @@ test("prose draws on the whole table, code on the identifier-safe subset", () =>
 test("matches returns exactly the prefix run", () => {
     const names = symbols.matches("python", "\\pi").map((entry) => entry.name);
     assert.ok(names.includes("\\pi"));
-    assert.ok(names.every((name) => name.startsWith("\\pi")), "nothing outside the prefix");
+    assert.ok(
+        names.every((name) => name.startsWith("\\pi")),
+        "nothing outside the prefix"
+    );
     assert.deepStrictEqual(names, [...names].sort(), "sorted, as the binary search assumes");
     assert.deepStrictEqual(symbols.matches("python", "\\zzz"), []);
 

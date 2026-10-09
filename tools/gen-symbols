@@ -8,10 +8,22 @@ taking it directly gives us both sets from one parse: everything, and the identi
 subset that is all Jupyter will complete.
 
 The subset is computed by applying IPython's own rule, ("a" + char).isidentifier(), rather
-than by copying IPython's output. That gives 1300 entries against their 1290, containing
-all of theirs with no disagreement in any value; the ten extra (\bbpi, \^C,
-\underrightarrow, ...) are ones IPython's line-based parser drops as an artefact rather
-than by intent. If that count ever changes, this is why it was 1300 and not 1290.
+than by copying IPython's output, with one exclusion of our own: format characters
+(category Cf), which are invisible and which IPython's table never offers. That gives 1300
+entries against their 1290, containing all of theirs with no disagreement in any value;
+the ten extra (\bbpi, \^C, \underrightarrow, ...) are ones IPython's line-based parser
+drops as an artefact rather than by intent. If that count ever changes, this is why it
+was 1300 and not 1290.
+
+That exclusion is why Julia's later \zwj (U+200D) is absent: it is legal in a name from
+Python 3.13, but completing an invisible joiner into code is a trap, not a feature.
+
+Both tables also drop any entry whose codepoint is still unassigned (category Cn). Julia
+ships a few ahead of Unicode -- \_w, \_y, \_z, \_pgamma, unassigned through Unicode 17 --
+and until a font can draw them they insert an empty box.
+
+Both rules are only as fixed as the interpreter's Unicode database, as \zwj shows. Run
+this on the Python the release workflow pins, or tools/check may disagree with it in CI.
 
 Run by hand when the upstream file moves.
 """
@@ -19,6 +31,7 @@ Run by hand when the upstream file moves.
 import json
 import re
 import sys
+import unicodedata
 import urllib.request
 from pathlib import Path
 
@@ -49,12 +62,17 @@ def unescape(s):
 
 
 def identifier_safe(char):
-    """Is the character legal inside a Python name? IPython's whole filter.
+    """Is the character legal inside a Python name, and not a format character (Cf)?
 
     Prefixed with a letter because several are legal to continue a name but not to start
     one, and IPython keeps those.
     """
-    return ("a" + char).isidentifier()
+    return ("a" + char).isidentifier() and all(unicodedata.category(c) != "Cf" for c in char)
+
+
+def assigned(char):
+    """Does every codepoint have a character behind it yet? Unassigned ones render as a box."""
+    return all(unicodedata.category(c) != "Cn" for c in char)
 
 
 def parse(source):
@@ -78,7 +96,7 @@ def main():
     with urllib.request.urlopen(URL, timeout=60) as response:
         source = response.read().decode("utf-8")
 
-    symbols = parse(source)
+    symbols = {name: char for name, char in parse(source).items() if assigned(char)}
     if len(symbols) < 2000:
         sys.exit(f"only {len(symbols)} entries parsed; the upstream format has moved")
 
@@ -95,7 +113,8 @@ def main():
     (data / "jupyter.json").write_text(
         json.dumps(jupyter, ensure_ascii=False, indent=4) + "\n", encoding="utf-8"
     )
-    print(f"{len(symbols)} symbols, {len(jupyter)} identifier-safe")
+    version = unicodedata.unidata_version
+    print(f"{len(symbols)} symbols, {len(jupyter)} identifier-safe, Unicode {version}")
 
 
 if __name__ == "__main__":

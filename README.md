@@ -45,7 +45,7 @@ code --install-extension jupyter-unicode-vscode-ext-0.1.0.vsix
 ./tools/package       # build the .vsix
 ```
 
-`.github/workflows/release.yml` runs the first two on every push: it regenerates the tables and fails if they drift from what is committed, runs the suite, then packages and publishes. Edge builds carry a `+ci.<run>.g<sha>` suffix; tagged builds carry the bare version, and the tag must agree with `package.json`.
+Both tables follow the running Python's Unicode database, so run the first two on the Python version the workflow pins. `.github/workflows/release.yml` runs them on every push: it regenerates the tables and fails if they drift from what is committed, runs the suite, then packages and publishes. Edge builds carry a `+ci.<run>.g<sha>` suffix; tagged builds carry the bare version, and the tag must agree with `package.json`.
 
 ## Licence
 

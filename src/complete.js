@@ -29,8 +29,8 @@ class LatexCompletionProvider {
 
         const range = new vscode.Range(position.line, token.start, position.line, position.character);
 
-        // Prefix matching, the way Jupyter does it. Handing the widget all 1300 names and
-        // letting its fuzzy matcher pick turns `\pi` into a list of `\phi`, `\psi`, `\bbPi`.
+        // Prefix matching, the way Jupyter does it. Handing the widget every name in the table
+        // and letting its fuzzy matcher pick turns `\pi` into a list of `\phi`, `\psi`, `\bbPi`.
         // `symbols.matches` binary-searches the sorted table, so a narrow prefix costs
         // nothing near the size of the table.
         const matches = symbols.matches(document.languageId, token.text);

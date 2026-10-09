@@ -30,13 +30,23 @@ jobs:
     build:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@v7
               with:
                   fetch-depth: 0
 
-            - uses: actions/setup-node@v4
+            - uses: actions/setup-node@v7
               with:
                   node-version: "22"
+
+            - uses: actions/setup-python@v7
+              # Pinned, not the runner's python3: both tables follow this interpreter's Unicode
+              # database -- which codepoints are assigned at all, and which are legal in a name
+              # -- and that moves between releases (U+200D, \zwj, became legal in 3.13; only
+              # the Cf exclusion in tools/gen-symbols keeps that one out). Regenerate locally
+              # on the same version, or the table and tools/check can disagree. Bump the two
+              # together.
+              with:
+                  python-version: "3.14"
 
             - name: Regenerate the symbol tables
               # The committed tables are the source of truth; this only proves they still match
@@ -154,7 +164,7 @@ jobs:
 
             - name: Upload the build for a non-default branch
               if: github.ref_type == 'branch' && github.ref_name != github.event.repository.default_branch
-              uses: actions/upload-artifact@v4
+              uses: actions/upload-artifact@v7
               with:
                   name: ${{ steps.package.outputs.name }}
                   path: ${{ steps.package.outputs.path }}

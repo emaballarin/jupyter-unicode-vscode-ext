@@ -42,14 +42,24 @@ def main():
     check(len(set(jupyter)) == len(jupyter), "jupyter.json has duplicates")
 
     check(all(symbols.values()), "some symbols map to an empty string")
+    # Julia ships a few codepoints ahead of Unicode, and until assigned they render as a box.
+    check(
+        all(unicodedata.category(c) != "Cn" for char in symbols.values() for c in char),
+        "some symbols map to an unassigned codepoint",
+    )
     check(
         all(name.startswith("\\") and len(name) > 1 for name in symbols),
         "some names do not start with a backslash",
     )
 
-    # The subset is exactly the identifier rule, not an approximation of it.
-    safe = {name for name, char in symbols.items() if ("a" + char).isidentifier()}
-    check(safe == set(jupyter), "jupyter.json does not match the isidentifier rule")
+    # The subset is exactly the identifier rule, not an approximation of it, less the
+    # invisible format characters (Cf) that IPython never offers.
+    safe = {
+        name
+        for name, char in symbols.items()
+        if ("a" + char).isidentifier() and all(unicodedata.category(c) != "Cf" for c in char)
+    }
+    check(safe == set(jupyter), "jupyter.json does not match the identifier rule (less Cf)")
 
     for name, expected in [
         ("\\beta", "β"),
@@ -69,7 +79,7 @@ def main():
     )
 
     # The characters the default set is meant to withhold, and the one it must not.
-    for name in ["\\sum", "\\in", "\\to", "\\_1", "\\^2"]:
+    for name in ["\\sum", "\\in", "\\to", "\\_1", "\\^2", "\\zwj"]:
         check(name not in set(jupyter), f"{name} should be absent from the jupyter set")
     check("\\beta" in set(jupyter), "\\beta should be in the jupyter set")
 
@@ -100,6 +110,13 @@ def main():
     if failures:
         for failure in failures:
             print(f"FAIL {failure}", file=sys.stderr)
+        # Both tables follow the generating interpreter's Unicode database, so a different
+        # one fails here on correct data. Say which ran, or the data takes the blame.
+        print(
+            f"(Python {sys.version.split()[0]}, Unicode {unicodedata.unidata_version}: the"
+            " tables are generated on the Python that .github/workflows/release.yml pins)",
+            file=sys.stderr,
+        )
         sys.exit(1)
     print(f"ok: {len(symbols)} symbols, {len(jupyter)} identifier-safe, tab guards intact")
 

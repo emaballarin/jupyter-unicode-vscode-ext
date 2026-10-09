@@ -125,9 +125,23 @@ def _():
     def break_icon(tree):
         (tree / "images" / "icon.png").unlink()
 
+    def add_zwj(tree):
+        path = tree / "data" / "jupyter.json"
+        names = sorted(json.loads(path.read_text(encoding="utf-8")) + ["\\zwj"])
+        path.write_text(json.dumps(names, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
+
+    def add_unassigned(tree):
+        # U+FFFF is a noncharacter: Cn in every Unicode version, so this cannot go stale.
+        path = tree / "data" / "symbols.json"
+        symbols = json.loads(path.read_text(encoding="utf-8"))
+        symbols["\\unassigned"] = "\uffff"
+        path.write_text(json.dumps(symbols, ensure_ascii=False, indent=4) + "\n", encoding="utf-8")
+
     broken(drop_beta, "\\beta should be in the jupyter set")
     broken(drop_guard, "lost its !suggestWidgetVisible guard")
     broken(break_icon, "is missing")
+    broken(add_zwj, "\\zwj should be absent from the jupyter set")
+    broken(add_unassigned, "some symbols map to an unassigned codepoint")
 
 
 @test("tools/gen-symbols imports without fetching, and parses the upstream shape")
@@ -160,6 +174,12 @@ def _():
 
     assert module.identifier_safe("α"), "alpha is legal in a python name"
     assert not module.identifier_safe("∑"), "sum is not"
+    # Only from Python 3.13 is a joiner legal in a name; before that, isidentifier alone
+    # rejects it and this would pass without exercising the Cf exclusion at all.
+    if ("a" + "\u200d").isidentifier():
+        assert not module.identifier_safe("\u200d"), "an invisible joiner must not complete"
+    assert module.assigned("α"), "alpha is assigned"
+    assert not module.assigned("\uffff"), "a noncharacter is never assigned"
     assert module.unescape(r"A") == "A"
 
 
